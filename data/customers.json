@@ -1,0 +1,14 @@
+[
+  {
+    "customer_id": "customer-001",
+    "name": "Sharma Traders",
+    "aliases": ["sharma", "sharma traders", "sharma trader"],
+    "city": "Delhi"
+  },
+  {
+    "customer_id": "customer-002",
+    "name": "Gupta Wholesale",
+    "aliases": ["gupta", "gupta wholesale", "gupta wholesalers"],
+    "city": "Jaipur"
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "product_id": "mat-001",
+    "name": "Floor Mat",
+    "aliases": ["mat", "mats", "floor mat", "floor mats"],
+    "unit": "mat",
+    "unit_price_inr": 150,
+    "unit_cost_inr": 120,
+    "inventory": 1000
+  },
+  {
+    "product_id": "bkt-001",
+    "name": "Plastic Bucket",
+    "aliases": ["bucket", "buckets", "plastic bucket", "plastic buckets"],
+    "unit": "bucket",
+    "unit_price_inr": 90,
+    "unit_cost_inr": 70,
+    "inventory": 500
+  },
+  {
+    "product_id": "tow-001",
+    "name": "Cotton Towel",
+    "aliases": ["towel", "towels", "cotton towel", "cotton towels"],
+    "unit": "towel",
+    "unit_price_inr": 200,
+    "unit_cost_inr": 160,
+    "inventory": 300
+  }
+]

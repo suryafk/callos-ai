@@ -1,0 +1,50 @@
+{
+  "_note": "OpenAI-style function definition for the single CallOS dispatcher tool. Verify the exact field layout Bolna's custom function UI expects in your workspace before pasting; adapt names, do not guess unsupported fields.",
+  "name": "callos_action",
+  "description": "Run a CallOS business action: list products, calculate a quote or profit, prepare/revise/approve/cancel a draft wholesale order, or check order status. Always speak the returned spoken_summary. Never approve without explicit caller confirmation.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "session_id": {
+        "type": "string",
+        "description": "Stable identifier of the current call. Map to Bolna's call/execution id variable if available."
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "list_products",
+          "calculate_quote",
+          "prepare_order",
+          "revise_order",
+          "approve_order",
+          "cancel_order",
+          "get_order_status"
+        ]
+      },
+      "parameters": {
+        "type": "object",
+        "description": "Action arguments. calculate_quote: quantity + (product_name or unit_cost_inr & unit_sell_inr). prepare_order: customer_name, product_name, quantity. revise_order: any of quantity, product_name, customer_name. approve_order: action_id, version (from the last awaiting_approval result). cancel_order: none. get_order_status: optional order_id.",
+        "properties": {
+          "customer_name": { "type": "string" },
+          "product_name": { "type": "string" },
+          "product_id": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "unit_cost_inr": { "type": "integer", "minimum": 0 },
+          "unit_sell_inr": { "type": "integer", "minimum": 0 },
+          "action_id": { "type": "string" },
+          "version": { "type": "integer", "minimum": 1 },
+          "order_id": { "type": "string" }
+        }
+      }
+    },
+    "required": ["action"]
+  },
+  "http": {
+    "method": "POST",
+    "url": "https://<deployed-host>/api/voice/action",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-CallOS-Key": "<set in Bolna, never commit>"
+    }
+  }
+}
