@@ -1,83 +1,123 @@
 # CallOS AI
 
-**One phone number. Ask anything. Get authorized things done.**
+**One phone call. AI for everyone. Actions when you need them.**
 
-Built for *Build Out Loud — Wispr Flow × Bolna Hackathon* (15 Nov 2026). A Bolna voice agent answers general questions and, through a single custom tool, calls this FastAPI backend to quote, draft, revise, approve and cancel wholesale orders — safely. See [context.md](context.md) for the full spec.
+CallOS is a voice AI assistant reached by an ordinary phone call. In one conversation a caller can
+
+- **Ask AI** — ask general questions, get explanations, tutoring, calculations and translations, in English, Hindi or Hinglish, with no app and no account; and
+- **Act with AI** — once verified, check email, calendar, documents and tasks, and have changes (a meeting, a task, an email) prepared, read back, approved and carried out.
+
+The caller never switches modes. The voice agent (Bolna) answers general questions itself and calls this backend only when it needs the caller's data or an action.
 
 ```
-Phone → Bolna (STT + LLM + TTS) → callos_action tool → FastAPI backend
-                                                        ├─ policy (allowlist, auth)
-                                                        ├─ orchestrator (state machine, versions, idempotency)
-                                                        ├─ catalog (data/*.json)
-                                                        └─ store + audit events (in-memory)
+Phone ─▶ telephony ─▶ Bolna voice agent (speech-to-text · LLM · text-to-speech)
+                          │  general question ─▶ answered by the model
+                          │  data / action    ─▶ HTTPS tool call
+                          ▼
+                    CallOS backend (FastAPI)
+                    credential check ▸ tool allowlist ▸ session + identity ▸ permission scopes
+                    ▸ pending action (versioned) ▸ explicit approval ▸ execute once ▸ verify ▸ audit
+                          ▼
+                    Mock email · calendar · documents · tasks   (persistent, per user)
 ```
 
-## Layout
+## What is real and what is simulated
 
-| Path | What |
+| Area | Status |
 |---|---|
-| `backend/main.py` | FastAPI app: `POST /api/voice/action`, `GET /api/health`, session/event inspection |
-| `backend/orchestrator.py` | Dispatcher + order state machine |
-| `backend/policy.py` | Action allowlist and auth checks |
-| `backend/store.py` | In-memory sessions, events, idempotency |
-| `backend/catalog.py` | Loads `data/products.json`, `data/customers.json` |
-| `backend/schemas.py` | Pydantic models |
-| `backend/tests/` | pytest suite (orders, approval, dispatch) |
-| `prompts/` | Bolna system prompt + tool schema |
-| `demo/` | Demo script, test-call log, pitch |
+| Backend, workflow engine, approvals, security rules, audit trail | Working, 135 automated tests (SQLite and PostgreSQL 16) |
+| Admin dashboard | Working |
+| Email / calendar / documents / tasks | **Mock** — real persisted data in the CallOS database, not a real Google or Microsoft account. Marked `execution_mode: "mock"` in every response and "MOCK" in the dashboard |
+| Bolna agent | Created in the Bolna account (Ask AI only). Tools are **not attached yet** because the backend has no public HTTPS URL |
+| Phone calls | **Not tested.** No call has been placed or received |
+| Caller verification | A spoken demo access code — **not production authentication** |
 
-## Run locally
+Full detail: [docs/implementation_status.md](docs/implementation_status.md).
+
+## Run it locally
+
+Needs Python 3.11+ and Node 20+ (tested with Python 3.13 locally and 3.12 in Docker, Node 26 locally and 22 in Docker).
 
 ```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pytest -q
-uvicorn main:app --reload --port 8000
+make setup
 ```
 
-Expose to Bolna over HTTPS (e.g. `cloudflared tunnel --url http://localhost:8000` or `ngrok http 8000`), then set the tool URL to `https://<host>/api/voice/action`.
-
-### Environment
-
-| Var | Default | Purpose |
-|---|---|---|
-| `CALLOS_API_KEY` | *(unset = open)* | Required `X-CallOS-Key` header value. Set it in Bolna's tool headers. |
-| `CALLOS_DEMO_SESSION_ID` | `call-demo-001` | Session used when the tool payload has no `session_id`. |
-| `CALLOS_EXPOSE_SESSIONS` | `1` | Set `0` to hide `/api/sessions*` outside the demo. |
-
-## API
-
-`POST /api/voice/action`
-
-```json
-{ "session_id": "call-demo-001", "action": "prepare_order",
-  "parameters": { "customer_name": "Sharma Traders", "product_id": "mat-001", "quantity": 200 } }
+```bash
+make backend
 ```
 
-→
-
-```json
-{ "status": "awaiting_approval", "action_id": "act-201", "version": 1, "requires_approval": true,
-  "spoken_summary": "Draft order for Sharma Traders: 200 Floor Mats at 150 rupees each, total 30,000 rupees before taxes and delivery charges. Shall I create it?" }
+```bash
+make frontend
 ```
 
-Actions: `list_products`, `calculate_quote`, `prepare_order`, `revise_order`, `approve_order` (needs `action_id` + `version`), `cancel_order`, `get_order_status`. Flat payloads (`{"action": ..., "quantity": ...}`) are also accepted. Responses always contain a speakable `spoken_summary`, even on errors.
+- API: http://localhost:8787 — interactive docs at http://localhost:8787/docs
+- Dashboard: http://localhost:5174 — sign in with the admin key (`dev-admin-key-change-me` in local development)
 
-## Safety guarantees (enforced server-side)
+With the backend running, play the demo scenarios as scripted tool calls:
 
-- Prices and totals come from the catalog; LLM-supplied prices are ignored.
-- Revisions bump the version; approving an old version is rejected.
-- Approval is idempotent — the same approval twice creates one order.
-- Cancelled/superseded drafts never execute; approvals are bound to the session.
-- Unknown actions are blocked.
+```bash
+make simulate
+```
 
-## Bolna setup
+Run the tests:
 
-1. System prompt: [prompts/bolna_system_prompt.md](prompts/bolna_system_prompt.md)
-2. Custom tool: [prompts/tool_schema.json](prompts/tool_schema.json) — confirm field names against your Bolna workspace.
-3. Greeting: "Hello, I'm CallOS. You can ask me questions or ask me to perform permitted tasks. How can I help?"
+```bash
+make test
+```
 
-## Mocked / limitations (disclose in demo)
+Or run everything in Docker:
 
-Catalog, customers and orders are mock data. Every session is pre-authorized as the demo business user (caller ID is not authentication). State is in memory and resets on restart. If Bolna doesn't pass a stable call ID, all calls share `CALLOS_DEMO_SESSION_ID`.
+```bash
+docker compose up --build -d
+```
+
+Local development works with no `.env`. To change settings, copy `.env.example` to `.env`. Ports are set with `BACKEND_PORT` / `FRONTEND_PORT` (defaults 8787 / 5174).
+
+### Try the main flow by hand
+
+```bash
+curl -s localhost:8787/api/voice/action -H "Authorization: Bearer dev-tool-key-change-me" -H "Content-Type: application/json" -d '{"session_id":"call-demo-001","action":"verify_identity","parameters":{"access_code":"482916"}}'
+```
+
+```bash
+curl -s localhost:8787/api/voice/action -H "Authorization: Bearer dev-tool-key-change-me" -H "Content-Type: application/json" -d '{"session_id":"call-demo-001","action":"prepare_meeting","parameters":{"title":"Project retrospective","date":"tomorrow","time":"16:00"}}'
+```
+
+The second response contains an `action_id` and `version`. Nothing is on the calendar until you approve that exact version:
+
+```bash
+curl -s localhost:8787/api/actions/approve -H "Authorization: Bearer dev-tool-key-change-me" -H "Content-Type: application/json" -d '{"session_id":"call-demo-001","action_id":"<action_id>","version":1}'
+```
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `backend/app/api/` | HTTP routes: health, voice tools, approve/cancel, sessions, admin, dev simulator |
+| `backend/app/core/` | `orchestrator` (single entry point for tool calls), `tool_registry` (allowlist), `policy_engine` (authorization), `workflow_engine` (state machine, pending actions, approval, execution) |
+| `backend/app/services/` | Email, calendar, document, task and demo-verification logic |
+| `backend/app/integrations/` | Adapter interfaces, the mock adapters, and the (unimplemented) Google extension point |
+| `backend/app/seed/` | Demo workspace data |
+| `backend/tests/` | Automated tests, including the Bolna contract test and scenarios A–E |
+| `backend/scripts/simulate_call.py` | Local tool-call simulator |
+| `bolna/` | System prompt, tool definitions, agent configuration, setup guide, call test scenarios, payload builder |
+| `frontend/` | React + TypeScript + Vite + Tailwind admin dashboard |
+| `docs/` | Architecture, API reference, security, deployment, demo script, implementation status |
+
+## Connecting the phone side
+
+1. Deploy the backend to a public HTTPS URL — [docs/deployment.md](docs/deployment.md).
+2. Attach the tools to the Bolna agent and run the call tests — [bolna/setup_guide.md](bolna/setup_guide.md).
+
+## Safety rules the backend enforces
+
+These hold whatever the voice model says or is tricked into saying:
+
+- Tool calls need a server-to-server credential; only allowlisted tools run.
+- Identity comes from server-side verification, never from the caller's phone number or any ID in the request.
+- Each tool needs a permission scope on the verified user; data is always filtered by that user.
+- Changes are only *prepared* by tools. They run through one approval endpoint that needs the action ID **and** its current version; editing an action bumps the version and voids earlier approvals.
+- An action executes at most once (atomic claim + idempotency keys), and success is reported only after the result is read back.
+- Text from emails and documents is returned as labelled, untrusted data. It cannot start an action.
+
+Out of scope by design: operating-system or browser control, shell commands, payments, purchases, banking, file deletion.

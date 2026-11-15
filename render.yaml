@@ -1,0 +1,41 @@
+# Render blueprint for a public hackathon demo. Nothing is deployed until you create the
+# blueprint in your own Render account. Review plans and pricing there first: the free web
+# service has no persistent disk (SQLite data resets on each deploy/restart) and sleeps when idle.
+services:
+  - type: web
+    name: callos-backend
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: CALLOS_ENV
+        value: demo
+      - key: CALLOS_TOOL_API_KEY
+        generateValue: true
+      - key: CALLOS_ADMIN_API_KEY
+        generateValue: true
+      - key: CALLOS_DEMO_USER_PIN
+        sync: false          # enter a 6-digit code in the Render dashboard
+      - key: CALLOS_DEMO_SECOND_USER_PIN
+        sync: false
+      - key: CALLOS_DEV_TOOLS_ENABLED
+        value: "false"
+      - key: CALLOS_DATABASE_URL
+        value: sqlite:////tmp/callos.db   # replace with a PostgreSQL URL for durable data
+      - key: CALLOS_CORS_ORIGINS
+        sync: false          # the dashboard's URL, e.g. https://callos-dashboard.onrender.com
+
+  - type: web
+    name: callos-dashboard
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false          # the backend's URL, e.g. https://callos-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

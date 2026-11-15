@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "callos-backend",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd backend && exec .venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8787"],
+      "port": 8787
+    },
+    {
+      "name": "callos-dashboard",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd frontend && BACKEND_PORT=8787 exec npm run dev -- --port 5174 --strictPort"],
+      "port": 5174
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+# CallOS AI — local stack: API + dashboard. Mock integrations only.
+#   docker compose up --build -d      then open http://localhost:5174
+# Settings come from .env (copy .env.example). Without a .env the development defaults are used.
+name: callos-ai
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # SQLite on a named volume so data survives restarts. To use PostgreSQL instead, start the
+      # "postgres" profile and set CALLOS_DATABASE_URL in .env (see docs/deployment.md).
+      CALLOS_DATABASE_URL: ${CALLOS_DATABASE_URL:-sqlite:////data/callos.db}
+      CALLOS_CORS_ORIGINS: ${CALLOS_CORS_ORIGINS:-http://localhost:5174}
+    volumes:
+      - callos-data:/data
+    ports:
+      - "${BACKEND_PORT:-8787}:8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-5174}:80"
+    restart: unless-stopped
+
+  # Optional: docker compose --profile postgres up -d
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: callos
+      POSTGRES_USER: callos
+      # Set POSTGRES_PASSWORD in .env. With an empty value the postgres image refuses to start.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - callos-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U callos -d callos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  callos-data:
+  callos-pg:

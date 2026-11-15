@@ -1,0 +1,156 @@
+# Deployment
+
+Nothing in this repository has been deployed to a public host. These are the prepared paths.
+
+## 1. Local development
+
+```bash
+make setup
+```
+
+```bash
+make backend
+```
+
+```bash
+make frontend
+```
+
+- Backend: http://localhost:8787 (`/docs` for the API, `/health` for the health check)
+- Dashboard: http://localhost:5174 (Vite proxies `/api` to the backend, so no CORS configuration is needed)
+- The SQLite database is `backend/callos.db`. It is created and seeded on first start. `make reset-db` deletes it.
+- No `.env` is needed locally. Copy `.env.example` to `.env` to change anything. If the default ports are taken: `make backend BACKEND_PORT=9000` and `make frontend BACKEND_PORT=9000 FRONTEND_PORT=5180`.
+
+## 2. Docker Compose
+
+```bash
+docker compose up --build -d
+```
+
+```bash
+docker compose ps
+```
+
+```bash
+docker compose logs -f backend
+```
+
+```bash
+docker compose down
+```
+
+- Dashboard on `http://localhost:${FRONTEND_PORT:-5174}`; nginx serves the built app and proxies `/api` and `/health` to the backend, so the browser uses one origin.
+- API on `http://localhost:${BACKEND_PORT:-8787}`.
+- SQLite lives on the `callos-data` volume and survives restarts. `docker compose down -v` deletes it.
+- The backend container runs as a non-root user and has a health check; the dashboard waits for it.
+
+### PostgreSQL instead of SQLite
+
+Set in `.env`:
+
+```
+POSTGRES_PASSWORD=<choose one>
+CALLOS_DATABASE_URL=postgresql://callos:<same password>@postgres:5432/callos
+```
+
+```bash
+docker compose --profile postgres up --build -d
+```
+
+`postgres://` and `postgresql://` URLs are accepted and use the bundled psycopg 3 driver. The full test suite passes against PostgreSQL 16 (`CALLOS_TEST_DATABASE_URL=postgresql://… make test`).
+
+## 3. Environment variables
+
+All backend settings use the `CALLOS_` prefix. `.env.example` lists every one with comments.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CALLOS_ENV` | `development` | `demo` for a public demo, `production` for real users |
+| `CALLOS_DATABASE_URL` | `sqlite:///./callos.db` | SQLite or PostgreSQL URL |
+| `CALLOS_TOOL_API_KEY` | dev value | Bolna sends this as the Bearer token. Must be changed outside development |
+| `CALLOS_ADMIN_API_KEY` | dev value | Dashboard key. Must differ from the tool key |
+| `CALLOS_CORS_ORIGINS` | local dashboard | Comma-separated origins, needed only when the dashboard is on a different host than the API |
+| `CALLOS_DEMO_AUTH_ENABLED` | `true` | Spoken access code. Must be `false` in production |
+| `CALLOS_DEMO_USER_PIN`, `CALLOS_DEMO_SECOND_USER_PIN` | dev values | Must be changed for `CALLOS_ENV=demo`. Applied when the database is first seeded |
+| `CALLOS_SEED_DEMO_DATA` | `true` | Seeds the mock workspace into an empty database |
+| `CALLOS_DEV_TOOLS_ENABLED` | `true` | Enables `/api/dev/*`. Ignored (off) in production |
+| `CALLOS_ACTION_TTL_MINUTES` / `CALLOS_AUTH_TTL_MINUTES` | 15 / 60 | Pending-action and verification lifetimes |
+| `CALLOS_LOG_LEVEL` | `INFO` | |
+| `VITE_API_BASE_URL` | empty | Dashboard build-time setting: the API's URL when it is on another host |
+
+Generate keys with:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### Startup safety checks
+
+With `CALLOS_ENV` set to anything other than `development`, the backend refuses to start if the tool or admin key is a default, shorter than 24 characters, or the two are equal; if (`demo`) the demo access codes are still the defaults; or if (`production`) demo authentication is enabled. The error message lists what to fix.
+
+## 4. Public HTTPS hosting
+
+Bolna must reach the backend over public HTTPS. Two options.
+
+### Option A — temporary tunnel to your machine (quickest for a demo)
+
+Run the backend locally with real secrets, then expose it with a tunnel you install yourself, for example:
+
+```bash
+CALLOS_ENV=demo CALLOS_TOOL_API_KEY=<key> CALLOS_ADMIN_API_KEY=<other key> CALLOS_DEMO_USER_PIN=<6 digits> CALLOS_DEMO_SECOND_USER_PIN=<6 digits> make backend
+```
+
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+
+The tunnel prints an `https://…trycloudflare.com` URL. It changes every time you restart the tunnel, and the Bolna tools must then be updated. Anyone with the URL can reach the API, which is why the keys above must not be the development defaults. Neither `cloudflared` nor `ngrok` is installed on the development machine this was built on.
+
+### Option B — Render (or a similar container host)
+
+`render.yaml` is a blueprint for a backend web service (Docker) and a static dashboard. Creating it in your Render account is your decision; check the plan and pricing shown there first.
+
+1. Push this repository to GitHub.
+2. In Render: **New → Blueprint**, select the repository.
+3. Enter the values Render asks for: the two demo access codes; `CALLOS_CORS_ORIGINS` = the dashboard URL; `VITE_API_BASE_URL` = the backend URL. The tool and admin keys are generated by Render — copy them from the backend service's Environment page.
+4. After the first deploy, open `https://<backend>/health`.
+
+Notes for free tiers: the blueprint's default SQLite path is on ephemeral disk, so data resets on every deploy or restart, and the service sleeps when idle (the first tool call after a sleep can take long enough for a caller to notice). For durable data, create a PostgreSQL database and set `CALLOS_DATABASE_URL` to its URL.
+
+The backend image works on any host that runs a container and provides `$PORT` (Railway, Fly.io, Cloud Run). It needs one process and one database.
+
+## 5. Database initialisation
+
+Tables are created automatically at startup (`create_all`), and the demo workspace is seeded if the `users` table is empty and `CALLOS_SEED_DEMO_DATA=true`. Seeded dates are relative to the day of seeding, so "tomorrow afternoon" has events on that day; on a long-running deployment the calendar gradually becomes past-dated. To re-seed: locally `make reset-db`; anywhere dev tools are enabled, the dashboard's **Reset demo data** button (`POST /api/dev/reset`), which deletes all sessions, actions and workspace changes.
+
+There are no schema migrations. A schema change currently means recreating the database.
+
+## 6. Bolna tool endpoint configuration
+
+Once the backend has a public URL:
+
+```bash
+python3 bolna/build_agent_payload.py --base-url https://<your-backend-host> --tool-key "<CALLOS_TOOL_API_KEY>"
+```
+
+This writes `bolna/out/agent_payload.json` (for the Bolna API) and `bolna/out/dashboard_tools.json` (one JSON per tool, to paste in the Bolna dashboard). Then follow [bolna/setup_guide.md](../bolna/setup_guide.md). Bolna calls from fixed source IPs listed in its documentation; allow them if the host has a firewall.
+
+## 7. Health checks
+
+`GET /health` returns 200 with `{"status":"ok","database":"ok",…}` when the database answers, and 503 with `"database":"unavailable"` otherwise. It needs no credential and exposes no secrets. The Docker image and `render.yaml` both use it.
+
+## 8. Log inspection
+
+Logs are one JSON object per line on stdout.
+
+```bash
+docker compose logs -f backend
+```
+
+Useful fields: `message` (`tool_call`, `http_request`), `tool`, `status`, `session_id`, `action_id`, `duration_ms`, `correlation_id`. To follow one request end to end, search for its `correlation_id` (returned in the `X-Correlation-ID` response header and in the response body):
+
+```bash
+docker compose logs backend | grep '"correlation_id": "<id>"'
+```
+
+The same events, per call, are in the dashboard under **Sessions → (select a session) → Audit trail**, and at `GET /api/sessions/{id}/events`.

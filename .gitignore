@@ -1,8 +1,27 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+bolna/out/
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-.env
-.env.*
+
+# Local databases
 *.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# OS / editors
 .DS_Store
+.idea/
+.vscode/
